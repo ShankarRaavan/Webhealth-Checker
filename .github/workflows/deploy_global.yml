@@ -95,7 +95,7 @@ jobs:
       IMAGE_DIGEST: ${{ needs.build_and_push.outputs.image_digest }}
       ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python src/global/global_monitor.py' }}
       USE_SECRETS_MANAGER: "true"
-      SECRET_NAME: "qobs/healthcheck-fwN15E"
+      SECRET_NAME: "qobs/healthcheck"
  
     steps:
       - name: Debug environment
