@@ -182,17 +182,27 @@ def create_driver():
     chrome_options.add_argument(f"--disk-cache-dir={os.path.join(profile_dir, 'cache')}")
     chrome_options.add_argument("--profile-directory=Default")
 
-    # webdriver_manager
-    if CHROMEDRIVER_VERSION:
-        drv = webdriver.Chrome(
-            service=Service(ChromeDriverManager(version=CHROMEDRIVER_VERSION).install()),
-            options=chrome_options
-        )
+    # webdriver_manager vs system driver (fix for ARM64/Chromium)
+    system_driver = shutil.which("chromedriver") or shutil.which("chromium-driver")
+    system_chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+
+    # If using Chromium (common on ARM64), tell options where the binary is
+    if system_chrome and "google-chrome" not in system_chrome:
+        print(f"Setting binary location to system Chromium: {system_chrome}")
+        chrome_options.binary_location = system_chrome
+
+    if system_driver:
+        print(f"Using system chromedriver: {system_driver}")
+        service = Service(system_driver)
     else:
-        drv = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=chrome_options
-        )
+        print("System chromedriver not found; falling back to webdriver_manager...")
+        if CHROMEDRIVER_VERSION:
+            install_path = ChromeDriverManager(version=CHROMEDRIVER_VERSION).install()
+        else:
+            install_path = ChromeDriverManager().install()
+        service = Service(install_path)
+
+    drv = webdriver.Chrome(service=service, options=chrome_options)
     w = WebDriverWait(drv, TIMEOUT)
     return drv, w
 
