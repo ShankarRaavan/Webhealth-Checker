@@ -184,7 +184,16 @@ def create_driver():
 
     # webdriver_manager vs system driver (fix for ARM64/Chromium)
     system_driver = shutil.which("chromedriver") or shutil.which("chromium-driver")
-    system_chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    
+    # Try explicit paths if shutil.which failed (sometimes PATH issue)
+    if not system_driver:
+        for p in ["/usr/bin/chromedriver", "/usr/bin/chromium-driver", "/usr/lib/chromium-browser/chromedriver"]:
+            if os.path.exists(p) and os.access(p, os.X_OK):
+                system_driver = p
+                break
+
+    system_chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser") or \
+                    ("/usr/bin/chromium" if os.path.exists("/usr/bin/chromium") else None)
 
     # If using Chromium (common on ARM64), tell options where the binary is
     if system_chrome and "google-chrome" not in system_chrome:
@@ -195,7 +204,15 @@ def create_driver():
         print(f"Using system chromedriver: {system_driver}")
         service = Service(system_driver)
     else:
-        print("System chromedriver not found; falling back to webdriver_manager...")
+        print("System chromedriver not found in PATH or common locations.")
+        print(f"PATH={os.getenv('PATH')}")
+        try:
+            print("Listing /usr/bin/chrom*:")
+            import glob
+            print(glob.glob("/usr/bin/chrom*"))
+        except Exception:
+            pass
+        print("Falling back to webdriver_manager (WARNING: likely incompatible on ARM64)...")
         if CHROMEDRIVER_VERSION:
             install_path = ChromeDriverManager(version=CHROMEDRIVER_VERSION).install()
         else:

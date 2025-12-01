@@ -34,7 +34,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
        && rm -rf /var/lib/apt/lists/*; \
      else \
        apt-get update \
-       && apt-get install -y --no-install-recommends chromium chromium-driver || true \
+       && apt-get install -y --no-install-recommends chromium chromium-driver \
        && rm -rf /var/lib/apt/lists/*; \
      fi
 
