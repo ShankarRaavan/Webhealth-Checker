@@ -38,6 +38,38 @@ def env_bool(name: str, default=False) -> bool:
     v = os.getenv(name, str(default)).strip().lower()
     return v in ("1", "true", "yes", "y", "on")
 
+def load_aws_secrets():
+    """Fetch secrets from AWS Secrets Manager and inject into os.environ."""
+    if not env_bool("USE_SECRETS_MANAGER"):
+        return
+
+    secret_name = os.getenv("SECRET_NAME")
+    region_name = os.getenv("AWS_REGION", "us-east-1")
+
+    if not secret_name:
+        print("Warning: USE_SECRETS_MANAGER is true but SECRET_NAME is not set.")
+        return
+
+    print(f"Loading secrets from AWS Secrets Manager: {secret_name} ({region_name})")
+    try:
+        import boto3
+        session = boto3.session.Session()
+        client = session.client(service_name='secretsmanager', region_name=region_name)
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+
+        if 'SecretString' in get_secret_value_response:
+            secrets = json.loads(get_secret_value_response['SecretString'])
+            for key, value in secrets.items():
+                # Inject into environment so subsequent os.getenv calls find them
+                os.environ[key] = str(value)
+            print(f"Successfully loaded {len(secrets)} secrets into environment.")
+    except Exception as e:
+        print(f"Error loading secrets from AWS: {e}")
+        # We don't raise here, letting it fail naturally if creds are missing
+
+# Try loading secrets before reading config globals
+load_aws_secrets()
+
 LOGIN_URL         = os.getenv("LOGIN_URL", "")
 USERNAME          = os.getenv("OPSNOW_USERNAME", "")
 PASSWORD          = os.getenv("OPSNOW_PASSWORD", "")
