@@ -18,7 +18,7 @@ env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: 471112967827
   ECR_REPOSITORY: qobs-an2p-health-check-ecr
-  INSTANCE_TAG_NAME: qobs-an2p-health-check-ec2
+  INSTANCE_TAG_NAME: qobs-ue1p-health-check-ec2
 
 jobs:
   build_and_push:
