@@ -6,7 +6,7 @@ on:
       entry_command:
         description: 'Container entry command (override if needed)'
         required: false
-        default: 'python src/global/global_monitor.py'
+        default: 'python global_monitor.py'
   push:
     branches: [ main ]
 
@@ -17,8 +17,8 @@ permissions:
 env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: 471112967827
-  ECR_REPOSITORY: qobs-ue1p-health-check-ecr
-  INSTANCE_TAG_NAME: qobs-ue1p-health-check-ec2
+  ECR_REPOSITORY: qobs-an2p-health-check-ecr
+  INSTANCE_TAG_NAME: qobs-an2p-health-check-ec2
 
 jobs:
   build_and_push:
@@ -63,7 +63,7 @@ jobs:
 
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -f cicd/docker/Dockerfile \
+            -f Dockerfile \
             -t "$IMAGE" \
             --push \
             .
@@ -93,7 +93,7 @@ jobs:
     env:
       IMAGE_NAME: ${{ needs.build_and_push.outputs.image_name }}
       IMAGE_DIGEST: ${{ needs.build_and_push.outputs.image_digest }}
-      ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python src/global/global_monitor.py' }}
+      ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python global_monitor.py' }}
       USE_SECRETS_MANAGER: "true"
       SECRET_NAME: "qobs/healthcheck-fwN15E"
  
@@ -154,24 +154,24 @@ jobs:
           jq . "$FILE" >/dev/null || (echo "Invalid JSON created:"; cat "$FILE"; exit 1)
           
           echo "param_file=$FILE" >> "$GITHUB_OUTPUT"
-
+          
       - name: Deploy via SSM
         id: runssm
         run: |
           # read param file path emitted by prepare step
           FILE="${{ steps.prepare.outputs.param_file }}"
           echo "Using param file: $FILE"
-          
+          cat "$FILE" | jq . -C || cat "$FILE"
           if [ ! -f "$FILE" ]; then
             echo "Param file not found: $FILE"
             exit 1
           fi
-          
+      
           # read JSON and validate/print (debug)
           JSON=$(cat "$FILE")
           echo "Prepared JSON (brief):"
           echo "$JSON" | jq . -C | sed -n '1,200p' || echo "$JSON"
-          
+      
           # send the command - wrap the parameter object correctly
           OUT=$(aws ssm send-command \
             --region "$AWS_REGION" \
@@ -179,16 +179,17 @@ jobs:
             --instance-ids "${{ steps.detect.outputs.instance_id }}" \
             --cli-input-json "{\"Parameters\": $JSON }" \
             --output json)
-          
+      
           echo "send-command output:"
           echo "$OUT" | jq -C . || echo "$OUT"
-          
+      
           ID=$(echo "$OUT" | jq -r '.Command.CommandId')
           if [ -z "$ID" ] || [ "$ID" = "null" ]; then
             echo "Failed to obtain CommandId - aborting"
             exit 1
           fi
           echo "command_id=$ID" >> "$GITHUB_OUTPUT"
+        shell: /usr/bin/bash -e {0}
 
       - name: Fetch Execution Logs
         run: |
