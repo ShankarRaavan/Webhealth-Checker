@@ -193,8 +193,38 @@ jobs:
 
       - name: Fetch Execution Logs
         run: |
+          CMD_ID="${{ steps.runssm.outputs.command_id }}"
+          INSTANCE_ID="${{ steps.detect.outputs.instance_id }}"
+          
+          echo "Waiting for command $CMD_ID on $INSTANCE_ID..."
+          
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query 'Status' \
+              --output text)
+            
+            echo "Status: $STATUS"
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "Command succeeded!"
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "Command failed with status: $STATUS"
+              aws ssm get-command-invocation \
+                --region "$AWS_REGION" \
+                --command-id "$CMD_ID" \
+                --instance-id "$INSTANCE_ID"
+              exit 1
+            fi
+            
+            sleep 5
+          done
+
           aws ssm get-command-invocation \
             --region "$AWS_REGION" \
-            --command-id "${{ steps.runssm.outputs.command_id }}" \
-            --instance-id "${{ steps.detect.outputs.instance_id }}" \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
             --output json
