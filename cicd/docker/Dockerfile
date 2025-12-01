@@ -21,11 +21,22 @@ RUN mkdir -p /usr/share/keyrings
 # Install Chrome (amd64) or Chromium (arm64) depending on architecture.
 # - For amd64: add Google repo using signed-by and install google-chrome-stable.
 # - For other arches (arm64): install chromium from Debian repos.
-# Install Chromium and chromedriver on all architectures for consistency
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends chromium chromium-driver \
-  && if [ ! -e /usr/bin/chromedriver ]; then ln -sf $(command -v chromium-driver || command -v chromedriver) /usr/bin/chromedriver; fi \
-  && rm -rf /var/lib/apt/lists/*
+# Install Chrome (amd64) or Chromium (arm64) depending on architecture.
+RUN ARCH="$(dpkg --print-architecture)" \
+  && if [ "$ARCH" = "amd64" ]; then \
+       # import and dearmor Google's signing key
+       wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
+         | gpg --dearmor > /usr/share/keyrings/google-linux-signing-keyring.gpg \
+       && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux-signing-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+         > /etc/apt/sources.list.d/google-chrome.list \
+       && apt-get update \
+       && apt-get install -y --no-install-recommends google-chrome-stable \
+       && rm -rf /var/lib/apt/lists/*; \
+     else \
+       apt-get update \
+       && apt-get install -y --no-install-recommends chromium chromium-driver || true \
+       && rm -rf /var/lib/apt/lists/*; \
+     fi
 
 # Optional: if your app uses chromedriver via apt on the distro, you can try install:
 # (This package name may not exist on all slim images — prefer a Python chromedriver package)
