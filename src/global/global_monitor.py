@@ -54,7 +54,8 @@ CHROME_USER_DATA_DIR = os.getenv("CHROME_USER_DATA_DIR", "").strip()  # optional
 
 # Optional: fetch YAML from S3 instead of local file
 CONFIG_URI        = ""  # Hardcoded to use local file
-CONFIG_PATH_LOCAL = "global_config.yaml"
+# Use absolute path relative to script location so it works from any CWD
+CONFIG_PATH_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "global_config.yaml")
 
 # Label keys for JS scan fallback
 SERVER_LABEL_KEYS = ["total server", "total servers", "server", "servers", "서버", "총 서버"]
