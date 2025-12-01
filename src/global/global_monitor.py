@@ -22,8 +22,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# webdriver_manager import removed for ARM64 compatibility
-# from webdriver_manager.chrome import ChromeDriverManager
+# webdriver_manager (can be toggled/pinned via CHROMEDRIVER_VERSION)
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Excel styling
 from openpyxl import load_workbook
@@ -48,6 +48,8 @@ TIMEOUT           = int(os.getenv("TIMEOUT", "30"))
 RENDER_RETRY      = int(os.getenv("RENDER_RETRY", "15"))
 LOCATOR_DEBUG     = env_bool("LOCATOR_DEBUG", False)
 CHROMEDRIVER_VERSION = os.getenv("CHROMEDRIVER_VERSION", "").strip()
+CHROMEDRIVER_PATH    = os.getenv("CHROMEDRIVER_PATH", "").strip()     # manual override for ARM/System driver
+CHROME_BINARY_PATH   = os.getenv("CHROME_BINARY_PATH", "").strip()    # manual override for Chromium binary
 CHROME_USER_DATA_DIR = os.getenv("CHROME_USER_DATA_DIR", "").strip()  # optional: use a fixed path
 
 # Optional: fetch YAML from S3 instead of local file
@@ -168,6 +170,9 @@ def create_driver():
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
+    if CHROME_BINARY_PATH:
+        chrome_options.binary_location = CHROME_BINARY_PATH
+
     # --- KEY FIX: unique Chrome profile per run ---
     # If CHROME_USER_DATA_DIR env is set, use it; else create a temp dir and clean it up on exit.
     profile_dir = CHROME_USER_DATA_DIR
@@ -182,52 +187,17 @@ def create_driver():
     chrome_options.add_argument(f"--disk-cache-dir={os.path.join(profile_dir, 'cache')}")
     chrome_options.add_argument("--profile-directory=Default")
 
-    # webdriver_manager vs system driver (fix for ARM64/Chromium)
-    system_driver = shutil.which("chromedriver") or shutil.which("chromium-driver")
-    
-    # Try explicit paths if shutil.which failed (sometimes PATH issue)
-    if not system_driver:
-        for p in [
-            "/usr/bin/chromedriver",
-            "/usr/bin/chromium-driver",
-            "/usr/lib/chromium/chromedriver",
-            "/usr/lib/chromium-browser/chromedriver"
-        ]:
-            if os.path.exists(p) and os.access(p, os.X_OK):
-                system_driver = p
-                break
-
-    system_chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser") or \
-                    ("/usr/bin/chromium" if os.path.exists("/usr/bin/chromium") else None)
-
-    # If using Chromium (common on ARM64), tell options where the binary is
-    if system_chrome and "google-chrome" not in system_chrome:
-        print(f"Setting binary location to system Chromium: {system_chrome}")
-        chrome_options.binary_location = system_chrome
-
-    if system_driver:
-        print(f"Using system chromedriver: {system_driver}")
-        service = Service(system_driver)
+    # webdriver_manager
+    if CHROMEDRIVER_PATH:
+        # Use system-installed chromedriver (common for ARM/Linux)
+        print(f"Using provided chromedriver path: {CHROMEDRIVER_PATH}")
+        svc = Service(executable_path=CHROMEDRIVER_PATH)
+    elif CHROMEDRIVER_VERSION:
+        svc = Service(ChromeDriverManager(version=CHROMEDRIVER_VERSION).install())
     else:
-        print("System chromedriver not found; trying Selenium Manager auto-discovery…")
-        print(f"PATH={os.getenv('PATH')}")
-        try:
-            print("Listing /usr/bin/chrom*:")
-            import glob
-            print(glob.glob("/usr/bin/chrom*"))
-        except Exception:
-            pass
-        # Fallback to Selenium Manager (selenium >= 4.6) which downloads a matching driver
-        try:
-            drv = webdriver.Chrome(options=chrome_options)
-            w = WebDriverWait(drv, TIMEOUT)
-            return drv, w
-        except Exception as e:
-            raise RuntimeError(
-                "No system chromedriver and Selenium Manager failed. Ensure 'chromium-driver' (or a matching ChromeDriver) is installed."
-            ) from e
+        svc = Service(ChromeDriverManager().install())
 
-    drv = webdriver.Chrome(service=service, options=chrome_options)
+    drv = webdriver.Chrome(service=svc, options=chrome_options)
     w = WebDriverWait(drv, TIMEOUT)
     return drv, w
 
