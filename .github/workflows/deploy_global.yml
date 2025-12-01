@@ -98,13 +98,11 @@ jobs:
       SECRET_NAME: "qobs/healthcheck-fwN15E"
  
     steps:
-
       - name: Debug environment
         run: |
           echo "expression env.AWS_REGION = ${{ env.AWS_REGION }}"
           echo "shell $AWS_REGION = $AWS_REGION"
           env | grep -E 'AWS|INSTANCE_TAG_NAME' || true
-
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -130,104 +128,67 @@ jobs:
 
           echo "instance_id=$INSTANCE" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare SSM JSON
+        id: prepare
+        run: |
+          FILE=$(mktemp)
+          IMAGE_REF="${IMAGE_NAME}@${IMAGE_DIGEST}"
+          
+          cat > "$FILE" <<EOF
+          {
+            "commands": [
+              "#!/bin/bash -eux",
+              "sudo systemctl restart docker || sudo systemctl start docker",
+              "REGISTRY='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
+              "aws ecr get-login-password --region '${AWS_REGION}' | sudo docker login --username AWS --password-stdin '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
+              "IMAGE_REF='${IMAGE_REF}'",
+              "sudo docker pull \"${IMAGE_REF}\"",
+              "sudo docker stop opsnow-healthcheck || true",
+              "sudo docker rm opsnow-healthcheck || true",
+              "sudo docker run -d --name opsnow-healthcheck --restart unless-stopped --shm-size=1g -m 2g -e USE_SECRETS_MANAGER=${USE_SECRETS_MANAGER} -e SECRET_NAME=${SECRET_NAME} -e AWS_REGION=${AWS_REGION} \"${IMAGE_REF}\" sh -lc '${ENTRY_CMD}'"
+            ]
+          }
+          EOF
+          
+          # validate JSON (good to fail early)
+          jq . "$FILE" >/dev/null || (echo "Invalid JSON created:"; cat "$FILE"; exit 1)
+          
+          echo "param_file=$FILE" >> "$GITHUB_OUTPUT"
 
-          - name: Prepare SSM JSON
-            id: prepare
-            run: |
-              FILE=$(mktemp)
-              IMAGE_REF="${IMAGE_NAME}@${IMAGE_DIGEST}"
-              
-              cat > "$FILE" <<EOF
-              {
-                "commands": [
-                  "#!/bin/bash -eux",
-                  "sudo systemctl restart docker || sudo systemctl start docker",
-                  "REGISTRY='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
-                  "aws ecr get-login-password --region '${AWS_REGION}' | sudo docker login --username AWS --password-stdin '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
-                  "IMAGE_REF='${IMAGE_REF}'",
-                  "sudo docker pull \"${IMAGE_REF}\"",
-                  "sudo docker stop opsnow-healthcheck || true",
-                  "sudo docker rm opsnow-healthcheck || true",
-                  "sudo docker run -d --name opsnow-healthcheck --restart unless-stopped --shm-size=1g -m 2g -e USE_SECRETS_MANAGER=${USE_SECRETS_MANAGER} -e SECRET_NAME=${SECRET_NAME} -e AWS_REGION=${AWS_REGION} \"${IMAGE_REF}\" sh -lc '${ENTRY_CMD}'"
-                ]
-              }
-              EOF
-              
-              # validate JSON (good to fail early)
-              jq . "$FILE" >/dev/null || (echo "Invalid JSON created:"; cat "$FILE"; exit 1)
-              
-              echo "param_file=$FILE" >> "$GITHUB_OUTPUT"
-              
-              - name: Deploy via SSM
-                id: runssm
-                run: |
-                  FILE="${{ steps.prepare.outputs.param_file }}"
-                  INSTANCE_ID="${{ steps.detect.outputs.instance_id }}"
-              
-                  echo "Using param_file: $FILE"
-                  echo "Using instance_id: $INSTANCE_ID"
-              
-                  if [ ! -f "$FILE" ]; then
-                    echo "Missing JSON param file"
-                    exit 1
-                  fi
-              
-                  # Extract commands array only
-                  COMMANDS=$(jq -c '.commands' "$FILE")
-              
-                  echo "Commands to run:"
-                  echo "$COMMANDS"
-              
-                  OUT=$(aws ssm send-command \
-                    --region "$AWS_REGION" \
-                    --document-name "AWS-RunShellScript" \
-                    --instance-ids "$INSTANCE_ID" \
-                    --parameters commands="$COMMANDS" \
-                    --output json)
-              
-                  echo "$OUT" | jq .
-              
-                  ID=$(echo "$OUT" | jq -r '.Command.CommandId')
-                  echo "command_id=$ID" >> "$GITHUB_OUTPUT"
-
+      - name: Deploy via SSM
+        id: runssm
+        run: |
+          # read param file path emitted by prepare step
+          FILE="${{ steps.prepare.outputs.param_file }}"
+          echo "Using param file: $FILE"
           
-          - name: Deploy via SSM
-            id: runssm
-            run: |
-              # read param file path emitted by prepare step
-              FILE="${{ steps.prepare.outputs.param_file }}"
-              echo "Using param file: $FILE"
-              cat "$FILE" | jq . -C || cat "$FILE"
-              if [ ! -f "$FILE" ]; then
-                echo "Param file not found: $FILE"
-                exit 1
-              fi
+          if [ ! -f "$FILE" ]; then
+            echo "Param file not found: $FILE"
+            exit 1
+          fi
           
-              # read JSON and validate/print (debug)
-              JSON=$(cat "$FILE")
-              echo "Prepared JSON (brief):"
-              echo "$JSON" | jq . -C | sed -n '1,200p' || echo "$JSON"
+          # read JSON and validate/print (debug)
+          JSON=$(cat "$FILE")
+          echo "Prepared JSON (brief):"
+          echo "$JSON" | jq . -C | sed -n '1,200p' || echo "$JSON"
           
-              # send the command - wrap the parameter object correctly
-              OUT=$(aws ssm send-command \
-                --region "$AWS_REGION" \
-                --document-name "AWS-RunShellScript" \
-                --instance-ids "${{ steps.detect.outputs.instance_id }}" \
-                --cli-input-json "{\"Parameters\": $JSON }" \
-                --output json)
+          # send the command - wrap the parameter object correctly
+          OUT=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "${{ steps.detect.outputs.instance_id }}" \
+            --cli-input-json "{\"Parameters\": $JSON }" \
+            --output json)
           
-              echo "send-command output:"
-              echo "$OUT" | jq -C . || echo "$OUT"
+          echo "send-command output:"
+          echo "$OUT" | jq -C . || echo "$OUT"
           
-              ID=$(echo "$OUT" | jq -r '.Command.CommandId')
-              if [ -z "$ID" ] || [ "$ID" = "null" ]; then
-                echo "Failed to obtain CommandId - aborting"
-                exit 1
-              fi
-              echo "command_id=$ID" >> "$GITHUB_OUTPUT"
-            shell: /usr/bin/bash -e {0}
-
-
+          ID=$(echo "$OUT" | jq -r '.Command.CommandId')
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "Failed to obtain CommandId - aborting"
+            exit 1
+          fi
+          echo "command_id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Fetch Execution Logs
         run: |
