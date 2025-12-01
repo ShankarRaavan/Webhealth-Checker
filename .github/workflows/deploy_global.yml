@@ -6,7 +6,7 @@ on:
       entry_command:
         description: 'Container entry command (override if needed)'
         required: false
-        default: 'python global_monitor.py'
+        default: 'python src/global/global_monitor.py'
   push:
     branches: [ main ]
 
@@ -16,7 +16,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 471112967827
+  AWS_ACCOUNT_ID: 149868069474
   ECR_REPOSITORY: qobs-an2p-health-check-ecr
   INSTANCE_TAG_NAME: qobs-an2p-health-check-ec2
 
@@ -63,7 +63,7 @@ jobs:
 
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -f Dockerfile \
+            -f cicd/docker/Dockerfile \
             -t "$IMAGE" \
             --push \
             .
@@ -93,7 +93,7 @@ jobs:
     env:
       IMAGE_NAME: ${{ needs.build_and_push.outputs.image_name }}
       IMAGE_DIGEST: ${{ needs.build_and_push.outputs.image_digest }}
-      ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python global_monitor.py' }}
+      ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python src/global/global_monitor.py' }}
       USE_SECRETS_MANAGER: "true"
       SECRET_NAME: "qobs/healthcheck-fwN15E"
  
