@@ -16,7 +16,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 149868069474
+  AWS_ACCOUNT_ID: 471112967827
   ECR_REPOSITORY: qobs-an2p-health-check-ecr
   INSTANCE_TAG_NAME: qobs-an2p-health-check-ec2
 
