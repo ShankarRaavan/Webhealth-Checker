@@ -42,6 +42,11 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # (This package name may not exist on all slim images — prefer a Python chromedriver package)
 # RUN apt-get update && apt-get install -y chromium-driver || true
 
+# Set environment variables for ARM/System drivers
+ENV CHROME_BINARY_PATH=/usr/bin/chromium \
+    CHROMEDRIVER_PATH=/usr/bin/chromedriver \
+    HEADLESS=true
+
 WORKDIR /app
 
 # Copy source code and requirements
