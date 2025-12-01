@@ -22,8 +22,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# webdriver_manager (can be toggled/pinned via CHROMEDRIVER_VERSION)
-from webdriver_manager.chrome import ChromeDriverManager
+# webdriver_manager import removed for ARM64 compatibility
+# from webdriver_manager.chrome import ChromeDriverManager
 
 # Excel styling
 from openpyxl import load_workbook
@@ -187,7 +187,12 @@ def create_driver():
     
     # Try explicit paths if shutil.which failed (sometimes PATH issue)
     if not system_driver:
-        for p in ["/usr/bin/chromedriver", "/usr/bin/chromium-driver", "/usr/lib/chromium-browser/chromedriver"]:
+        for p in [
+            "/usr/bin/chromedriver",
+            "/usr/bin/chromium-driver",
+            "/usr/lib/chromium/chromedriver",
+            "/usr/lib/chromium-browser/chromedriver"
+        ]:
             if os.path.exists(p) and os.access(p, os.X_OK):
                 system_driver = p
                 break
@@ -204,7 +209,7 @@ def create_driver():
         print(f"Using system chromedriver: {system_driver}")
         service = Service(system_driver)
     else:
-        print("System chromedriver not found in PATH or common locations.")
+        print("System chromedriver not found; trying Selenium Manager auto-discovery…")
         print(f"PATH={os.getenv('PATH')}")
         try:
             print("Listing /usr/bin/chrom*:")
@@ -212,12 +217,15 @@ def create_driver():
             print(glob.glob("/usr/bin/chrom*"))
         except Exception:
             pass
-        print("Falling back to webdriver_manager (WARNING: likely incompatible on ARM64)...")
-        if CHROMEDRIVER_VERSION:
-            install_path = ChromeDriverManager(version=CHROMEDRIVER_VERSION).install()
-        else:
-            install_path = ChromeDriverManager().install()
-        service = Service(install_path)
+        # Fallback to Selenium Manager (selenium >= 4.6) which downloads a matching driver
+        try:
+            drv = webdriver.Chrome(options=chrome_options)
+            w = WebDriverWait(drv, TIMEOUT)
+            return drv, w
+        except Exception as e:
+            raise RuntimeError(
+                "No system chromedriver and Selenium Manager failed. Ensure 'chromium-driver' (or a matching ChromeDriver) is installed."
+            ) from e
 
     drv = webdriver.Chrome(service=service, options=chrome_options)
     w = WebDriverWait(drv, TIMEOUT)
