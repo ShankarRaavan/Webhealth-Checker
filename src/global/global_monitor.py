@@ -5,6 +5,7 @@ import json
 import shutil
 import tempfile
 import traceback
+import argparse
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
@@ -87,7 +88,7 @@ CHROME_USER_DATA_DIR = os.getenv("CHROME_USER_DATA_DIR", "").strip()  # optional
 # Optional: fetch YAML from S3 instead of local file
 CONFIG_URI        = ""  # Hardcoded to use local file
 # Use absolute path relative to script location so it works from any CWD
-CONFIG_PATH_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "global_config.yaml")
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "global_config.yaml")
 
 # Label keys for JS scan fallback
 SERVER_LABEL_KEYS = ["total server", "total servers", "server", "servers", "서버", "총 서버"]
@@ -907,14 +908,23 @@ def run_one_check(check: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, str]:
 # ============================ MAIN ============================
 
 if __name__ == "__main__":
-    print("Starting health check…")
+    parser = argparse.ArgumentParser(description="OpsNow360 Health Check")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=DEFAULT_CONFIG_PATH,
+        help="Path to the YAML config file (default: global_config.yaml in script directory)"
+    )
+    args = parser.parse_args()
+
+    print(f"Starting health check with config: {args.config}")
     try:
         ensure_dirs()
         # Create driver up front so helpers can use it
         driver, wait = create_driver()
 
         # Optionally fetch config.yaml from S3
-        cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, CONFIG_PATH_LOCAL)
+        cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, args.config)
         cfg = load_config(cfg_path)
 
         # Allow YAML to override a couple of runtime defaults if provided

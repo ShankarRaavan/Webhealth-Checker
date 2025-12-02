@@ -1,0 +1,49 @@
+defaults:
+  headless: false
+  timeout: 30
+  render_retry: 15
+
+metadata_by_url:
+  "https://console.opsnow.com/home":                          { service: "Console",        menu: "Dashboard",             site: "Global", company: "옵스나우 주식회사" }
+  "https://asset.opsnow.com/#/dashboard":                     { service: "Asset",          menu: "Summary",               site: "Global", company: "옵스나우 주식회사" }
+  "https://asset.opsnow.com/asset/usage":                     { service: "Asset",          menu: "Usage",                 site: "Global", company: "옵스나우 주식회사" }
+  "https://asset.opsnow.com/asset/scheduler":                 { service: "Asset",          menu: "Resource Scheduler",    site: "Global", company: "옵스나우 주식회사" }
+  "https://cloudopti.opsnow.com/dashboard":                   { service: "Cost",           menu: "Summary",               site: "Global", company: "옵스나우 주식회사" }
+  "https://metering.opsnow.com/cost/cost-analytics":          { service: "Cost",           menu: "Cost Analytics",        site: "Global", company: "옵스나우 주식회사" }
+  "https://cloudopti.opsnow.com/finopskpi/savings":           { service: "Cost",           menu: "Optimization Results",  site: "Global", company: "옵스나우 주식회사" }
+  "https://governance.opsnow.com/dashboard":                  { service: "Governance",     menu: "Summary",               site: "Global", company: "옵스나우 주식회사" }
+  "https://governance.opsnow.com/finopskpi/kpi":              { service: "Governance",     menu: "Cloud Efficient Index", site: "Global", company: "옵스나우 주식회사" }
+  "https://service.opsnow.com/cms/enterprise/management":     { service: "KubeExplorer",   menu: "Summary",               site: "Global", company: "옵스나우 주식회사" }
+  "https://service.opsnow.com/saas/datadog/summary":          { service: "Datadog",        menu: "Summary",               site: "Global", company: "옵스나우 주식회사" }
+  "https://service.opsnow.com/console":                       { service: "Configuration",  menu: "Console Brokerage",     site: "Global", company: "옵스나우 주식회사" }
+  "https://service.opsnow.com/organization/":                 { service: "Configuration",  menu: "Organization Tree",     site: "Global", company: "옵스나우 주식회사" }
+
+checks:
+  - name: "KubeExplorer Summary - Node count value exists"
+    url: "https://service.opsnow.com/cms/enterprise/management"
+    type: value_required
+    locators:
+      - { kind: xpath, value: "//*[contains(normalize-space(.),'Resource Summary')]//*[contains(normalize-space(.),'Node count')]/following::p[contains(@class,'-number-l')][1]" }
+      - { kind: xpath, value: "//p[contains(@class,'-number-l')][.//em[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'nodes')]][1]" }
+      - { kind: xpath, value: "//*[self::p or self::div][contains(@class,'-number')][.//em[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'nodes')]][1]" }
+
+  - name: "Datadog Summary - Total Cost value exists"
+    url: "https://service.opsnow.com/saas/datadog/summary"
+    type: value_required
+    locators:
+      - { kind: xpath, value: "//*[contains(@class,'total-cost')][contains(normalize-space(.),'Total Cost')]/following::p[contains(@class,'total-cost-value')][1]" }
+
+  - name: "Console Brokerage - Total Accounts value exists"
+    url: "https://service.opsnow.com/console"
+    type: value_required
+    locators:
+      - { kind: xpath, value: "//*[contains(normalize-space(.),'AWS Overall Status')]//p[contains(@class,'account_num')][contains(normalize-space(.),'Total Accounts')]/following-sibling::p[contains(@class,'num')][1]" }
+      - { kind: xpath, value: "//p[contains(@class,'account_num')][contains(normalize-space(.),'Total Accounts')]/following-sibling::p[contains(@class,'num')][1]" }
+      - { kind: xpath, value: "//div[contains(@class,'lists')]//p[contains(@class,'account_num')]/following-sibling::p[contains(@class,'num')][1]" }
+
+  - name: "Organization Tree - Organization list exists (left panel)"
+    url: "https://service.opsnow.com/organization/"
+    type: element_exists
+    locators:
+      - { kind: xpath, value: "//*[contains(@class,'treeListWrap') or contains(@class,'treeWrap')][.//span[normalize-space(.)='Organization']]" }
+      - { kind: xpath, value: "//span[normalize-space(.)='Organization' and (contains(@class,'text') or contains(@class,'bespin-common'))]" }
