@@ -16,7 +16,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 975050010525
+  AWS_ACCOUNT_ID: 737679990230
   ECR_REPOSITORY: qobs-ue1p-health-check-ecr
   INSTANCE_TAG_NAME: qobs-ue1p-health-check-ec2
 
