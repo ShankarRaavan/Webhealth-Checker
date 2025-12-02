@@ -16,8 +16,8 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 471112967827
-  ECR_REPOSITORY: qobs-an2p-health-check-ecr
+  AWS_ACCOUNT_ID: 737679990230
+  ECR_REPOSITORY: qobs-ue1p-health-check-ecr
   INSTANCE_TAG_NAME: qobs-ue1p-health-check-ec2
 
 jobs:
@@ -145,7 +145,7 @@ jobs:
               "sudo docker pull \"${IMAGE_REF}\"",
               "sudo docker stop opsnow-healthcheck || true",
               "sudo docker rm opsnow-healthcheck || true",
-              "sudo docker run -d --name opsnow-healthcheck --restart unless-stopped --shm-size=1g -m 2g -e USE_SECRETS_MANAGER=${USE_SECRETS_MANAGER} -e SECRET_NAME=${SECRET_NAME} -e AWS_REGION=${AWS_REGION} \"${IMAGE_REF}\" sh -lc '${ENTRY_CMD}'"
+              "sudo docker run -d --name opsnow-healthcheck --restart unless-stopped --shm-size=1g -m 3.5g -e USE_SECRETS_MANAGER=${USE_SECRETS_MANAGER} -e SECRET_NAME=${SECRET_NAME} -e AWS_REGION=${AWS_REGION} \"${IMAGE_REF}\" sh -lc '${ENTRY_CMD}'"
             ]
           }
           EOF

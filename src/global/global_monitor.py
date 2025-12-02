@@ -905,6 +905,7 @@ def run_one_check(check: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, str]:
     return res
 
 
+
 # ============================ MAIN ============================
 
 if __name__ == "__main__":
@@ -925,6 +926,69 @@ if __name__ == "__main__":
 
         # Optionally fetch config.yaml from S3
         cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, args.config)
+        cfg = load_config(cfg_path)
+
+        # Allow YAML to override a couple of runtime defaults if provided
+        TIMEOUT_yaml = cfg.get("defaults", {}).get("timeout")
+        RENDER_yaml  = cfg.get("defaults", {}).get("render_retry")
+        if TIMEOUT_yaml: TIMEOUT = int(TIMEOUT_yaml)
+        if RENDER_yaml:  RENDER_RETRY = int(RENDER_yaml)
+
+        # Initial console login (if LOGIN_URL is set)
+        login_console()
+
+        results: List[Dict[str, str]] = []
+        for c in cfg.get("checks", []):
+            try:
+                results.append(run_one_check(c, cfg))
+            except Exception as e:
+                print(f"Check '{c.get('name','<unnamed>')}' crashed: {e}")
+                try:
+                    snap("Check_Crashed_" + safe_filename(c.get('name','unnamed')))
+                    dump_html("Check_Crashed_" + safe_filename(c.get('name','unnamed')))
+                except Exception:
+                    pass
+                # still record a FAIL row with minimal info
+                meta = {"Site":"", "Company":"", "Service":"", "Menu":""}
+                results.append(make_result(meta, c.get("url",""), c.get("name",""), "", "", "FAIL"))
+
+        save_report(results)
+        print("\nDone.")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        try:
+            snap("Fatal_Error")
+            dump_html("Fatal_Error")
+        except Exception:
+            pass
+        slack_notify("Fatal Error", str(e), None)
+    finally:
+        print("Closing browser…")
+        try:
+            if driver:
+                driver.quit()
+        except Exception:
+            pass
+        # Clean up the temp Chrome profile if we created one
+        try:
+            if TEMP_PROFILE_DIR and os.path.isdir(TEMP_PROFILE_DIR):
+                shutil.rmtree(TEMP_PROFILE_DIR, ignore_errors=True)
+        except Exception:
+            pass
+=======
+    print("Starting health check…")
+>>>>>>> 794bbb74cb5dcbe39c389a37bccb6095e8fae749
+    try:
+        ensure_dirs()
+        # Create driver up front so helpers can use it
+        driver, wait = create_driver()
+
+        # Optionally fetch config.yaml from S3
+<<<<<<< HEAD
+        cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, args.config)
+=======
+        cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, CONFIG_PATH_LOCAL)
+>>>>>>> 794bbb74cb5dcbe39c389a37bccb6095e8fae749
         cfg = load_config(cfg_path)
 
         # Allow YAML to override a couple of runtime defaults if provided
