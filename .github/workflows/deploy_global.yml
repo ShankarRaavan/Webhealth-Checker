@@ -1,0 +1,230 @@
+name: Build → Push → Deploy (Global)
+
+on:
+  workflow_dispatch:
+    inputs:
+      entry_command:
+        description: 'Container entry command (override if needed)'
+        required: false
+        default: 'python src/global/global_monitor.py'
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: 975050010525
+  ECR_REPOSITORY: qobs-ue1p-health-check-ecr
+  INSTANCE_TAG_NAME: qobs-ue1p-health-check-ec2
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_name: ${{ steps.out.outputs.image_name }}
+      image_digest: ${{ steps.out.outputs.image_digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/opsnowGithubActionRole
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Ensure ECR repo exists (skipped)
+        run: |
+          echo "Assuming ECR repo ${ECR_REPOSITORY} already exists in ${AWS_REGION}. Skipping create."
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login --username AWS --password-stdin \
+            "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+      # MULTI ARCH SUPPORT FOR GRAVITON EC2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push multi-arch image
+        id: build
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f cicd/docker/Dockerfile \
+            -t "$IMAGE" \
+            --push \
+            .
+
+          echo "IMAGE_NAME=$IMAGE" >> $GITHUB_ENV
+
+      - name: Get image digest
+        id: out
+        run: |
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="${GITHUB_SHA::8}" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "image_digest=${DIGEST}" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    environment: opsnow-healthcheck
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_NAME: ${{ needs.build_and_push.outputs.image_name }}
+      IMAGE_DIGEST: ${{ needs.build_and_push.outputs.image_digest }}
+      ENTRY_CMD: ${{ github.event.inputs.entry_command || 'python src/global/global_monitor.py' }}
+      USE_SECRETS_MANAGER: "true"
+      SECRET_NAME: "qobs/healthcheck"
+ 
+    steps:
+      - name: Debug environment
+        run: |
+          echo "expression env.AWS_REGION = ${{ env.AWS_REGION }}"
+          echo "shell $AWS_REGION = $AWS_REGION"
+          env | grep -E 'AWS|INSTANCE_TAG_NAME' || true
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/opsnowGithubActionRole
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Detect EC2 Instance
+        id: detect
+        run: |
+          INSTANCE=$(aws ec2 describe-instances \
+            --region "$AWS_REGION" \
+            --filters "Name=tag:Name,Values=${INSTANCE_TAG_NAME}" \
+                      "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+
+          if [ "$INSTANCE" = "None" ] || [ -z "$INSTANCE" ]; then
+            echo "No instance found!"
+            exit 1
+          fi
+
+          echo "instance_id=$INSTANCE" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare SSM JSON
+        id: prepare
+        run: |
+          FILE=$(mktemp)
+          IMAGE_REF="${IMAGE_NAME}@${IMAGE_DIGEST}"
+          
+          cat > "$FILE" <<EOF
+          {
+            "commands": [
+              "#!/bin/bash -eux",
+              "sudo systemctl restart docker || sudo systemctl start docker",
+              "REGISTRY='${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
+              "aws ecr get-login-password --region '${AWS_REGION}' | sudo docker login --username AWS --password-stdin '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'",
+              "IMAGE_REF='${IMAGE_REF}'",
+              "sudo docker pull \"${IMAGE_REF}\"",
+              "sudo docker stop opsnow-healthcheck || true",
+              "sudo docker rm opsnow-healthcheck || true",
+              "sudo docker run -d --name opsnow-healthcheck --restart unless-stopped --shm-size=1g -m 3.5g -e USE_SECRETS_MANAGER=${USE_SECRETS_MANAGER} -e SECRET_NAME=${SECRET_NAME} -e AWS_REGION=${AWS_REGION} \"${IMAGE_REF}\" sh -lc '${ENTRY_CMD}'"
+            ]
+          }
+          EOF
+          
+          # validate JSON (good to fail early)
+          jq . "$FILE" >/dev/null || (echo "Invalid JSON created:"; cat "$FILE"; exit 1)
+          
+          echo "param_file=$FILE" >> "$GITHUB_OUTPUT"
+          
+      - name: Deploy via SSM
+        id: runssm
+        run: |
+          # read param file path emitted by prepare step
+          FILE="${{ steps.prepare.outputs.param_file }}"
+          echo "Using param file: $FILE"
+          cat "$FILE" | jq . -C || cat "$FILE"
+          if [ ! -f "$FILE" ]; then
+            echo "Param file not found: $FILE"
+            exit 1
+          fi
+      
+          # read JSON and validate/print (debug)
+          JSON=$(cat "$FILE")
+          echo "Prepared JSON (brief):"
+          echo "$JSON" | jq . -C | sed -n '1,200p' || echo "$JSON"
+      
+          # send the command - wrap the parameter object correctly
+          OUT=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "${{ steps.detect.outputs.instance_id }}" \
+            --cli-input-json "{\"Parameters\": $JSON }" \
+            --output json)
+      
+          echo "send-command output:"
+          echo "$OUT" | jq -C . || echo "$OUT"
+      
+          ID=$(echo "$OUT" | jq -r '.Command.CommandId')
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "Failed to obtain CommandId - aborting"
+            exit 1
+          fi
+          echo "command_id=$ID" >> "$GITHUB_OUTPUT"
+        shell: /usr/bin/bash -e {0}
+
+      - name: Fetch Execution Logs
+        run: |
+          CMD_ID="${{ steps.runssm.outputs.command_id }}"
+          INSTANCE_ID="${{ steps.detect.outputs.instance_id }}"
+          
+          echo "Waiting for command $CMD_ID on $INSTANCE_ID..."
+          
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query 'Status' \
+              --output text)
+            
+            echo "Status: $STATUS"
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "Command succeeded!"
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "Command failed with status: $STATUS"
+              aws ssm get-command-invocation \
+                --region "$AWS_REGION" \
+                --command-id "$CMD_ID" \
+                --instance-id "$INSTANCE_ID"
+              exit 1
+            fi
+            
+            sleep 5
+          done
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --output json
