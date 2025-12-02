@@ -919,22 +919,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Starting health check with config: {args.config}")
+    driver = None
     try:
         ensure_dirs()
-        # Create driver up front so helpers can use it
         driver, wait = create_driver()
-
-        # Optionally fetch config.yaml from S3
         cfg_path = maybe_fetch_config_from_s3(CONFIG_URI, args.config)
         cfg = load_config(cfg_path)
 
-        # Allow YAML to override a couple of runtime defaults if provided
         TIMEOUT_yaml = cfg.get("defaults", {}).get("timeout")
         RENDER_yaml  = cfg.get("defaults", {}).get("render_retry")
         if TIMEOUT_yaml: TIMEOUT = int(TIMEOUT_yaml)
         if RENDER_yaml:  RENDER_RETRY = int(RENDER_yaml)
 
-        # Initial console login (if LOGIN_URL is set)
         login_console()
 
         results: List[Dict[str, str]] = []
@@ -948,7 +944,6 @@ if __name__ == "__main__":
                     dump_html("Check_Crashed_" + safe_filename(c.get('name','unnamed')))
                 except Exception:
                     pass
-                # still record a FAIL row with minimal info
                 meta = {"Site":"", "Company":"", "Service":"", "Menu":""}
                 results.append(make_result(meta, c.get("url",""), c.get("name",""), "", "", "FAIL"))
 
@@ -969,15 +964,10 @@ if __name__ == "__main__":
                 driver.quit()
         except Exception:
             pass
-        # Clean up the temp Chrome profile if we created one
-        try:
-            if TEMP_PROFILE_DIR and os.path.isdir(TEMP_PROFILE_DIR):
-                shutil.rmtree(TEMP_PROFILE_DIR, ignore_errors=True)
-        except Exception:
-            pass
+        if TEMP_PROFILE_DIR and os.path.isdir(TEMP_PROFILE_DIR):
+            shutil.rmtree(TEMP_PROFILE_DIR, ignore_errors=True)
 =======
     print("Starting health check…")
->>>>>>> 794bbb74cb5dcbe39c389a37bccb6095e8fae749
     try:
         ensure_dirs()
         # Create driver up front so helpers can use it
